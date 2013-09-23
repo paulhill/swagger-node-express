@@ -132,7 +132,8 @@ function filterApiListing(req, res, resource) {
     });
   }
 
-  var filteredResource = _.omit(resource, 'apis', 'models');
+  var filteredResource = _.cloneDeep(resource);
+  filteredResource = _.omit(filteredResource, 'apis', 'models');
 
   //  models required in the api listing
   var requiredModelNames = [];
