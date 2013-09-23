@@ -49,7 +49,6 @@ function configureSwaggerPaths(format, path, suffix) {
 
 // Configuring swagger will set the basepath and api version for all
 // subdocuments.  It should only be done once, and during bootstrap of the app
-
 function configure(bp, av) {
   basePath = bp;
   apiVersion = av;
@@ -57,9 +56,9 @@ function configure(bp, av) {
 
   // add the GET for resource listing
   appHandler.get(resourcePath.replace(formatString, jsonSuffix), resourceListing);
-  // update resources if already configured
 
-  _.forOwn(resources, function (resource) {
+  // update resources if already configured
+  _.forEach(resources, function (resource) {
     resource.apiVersion = av;
     resource.basePath = bp;
   });
@@ -78,20 +77,20 @@ function setHeaders(res) {
 
 function setResourceListingPaths(app) {
 
-  _.forOwn(resources, function (resource, key) {
+  _.forEach(resources, function (resource, key) {
 
     // pet.json => api-docs.json/pet
     var path = baseApiFromPath(key);
     app.get(path, function (req, res) {
+
       // find the api base path from the request URL
       // /api-docs.json/pet => /pet.json
-
-      var p = basePathFromApi(req.url.split('?')[0]);
+      var basePath = basePathFromApi(req.url.split('?')[0]);
 
       // this handles the request
       // api-docs.json/pet => pet.{format}
-      var r = resources[p];
-      if (!r) {
+      var resource = resources[basePath];
+      if (!resource) {
         console.error("unable to find listing");
         return stopWithError(res, {
           'reason': 'internal error',
@@ -99,12 +98,12 @@ function setResourceListingPaths(app) {
         });
       } else {
         exports.setHeaders(res);
-        var data = filterApiListing(req, res, r);
-        data.basePath = basePath;
-        if (data.code) {
-          res.send(data, data.code);
+        var apiListing = filterApiListing(req, res, resource);
+        apiListing.basePath = basePath;
+        if (apiListing.code) {
+          res.send(apiListing, apiListing.code);
         } else {
-          res.send(JSON.stringify(filterApiListing(req, res, r)));
+          res.send(JSON.stringify(apiListing));
         }
       }
     });
@@ -124,77 +123,70 @@ function baseApiFromPath(path) {
 
 // Applies a filter to an api listing.  When done, the api listing will only contain
 // methods and models that the user actually has access to.
+function filterApiListing(req, res, resource) {
 
-function filterApiListing(req, res, r) {
-  var excludedPaths = [];
-
-  if (!r || !r.apis) {
+  if (!resource || !resource.apis) {
     return stopWithError(res, {
       'reason': 'internal error',
       'code': 500
     });
   }
 
-  _.forOwn(r.apis, function (api) {
-    for (var opKey in api.operations) {
-      if (!api.operations.hasOwnProperty(opKey)) {
-        continue;
-      }
-      var op = api.operations[opKey];
-      var path = api.path.replace(formatString, "").replace(/{.*\}/, "*");
-      if (!canAccessResource(req, path, op.httpMethod)) {
-        excludedPaths.push(op.httpMethod + ":" + api.path);
-      }
-    }
-  });
-
-  //  clone attributes in the resource
-  var output = shallowClone(r);
+  var filteredResource = _.omit(resource, 'apis', 'models');
 
   //  models required in the api listing
-  var requiredModels = [];
+  var requiredModelNames = [];
+  var filteredModels = {};
+  var filteredApis = [];
 
-  //  clone methods that user can access
-  output.apis = [];
-  var apis = JSON.parse(JSON.stringify(r.apis));
-  _.forOwn(apis, function (api) {
-    var clonedApi = shallowClone(api);
+  _.forEach(resource.apis, function (api) {
 
-    clonedApi.operations = [];
-    _.forOwn(api.operations, function (operation) {
-      if (!excludedPaths.indexOf(operation.httpMethod + ":" + api.path) >= 0) {
-        clonedApi.operations.push(JSON.parse(JSON.stringify(operation)));
-        addModelsFromBody(operation, requiredModels);
-        addModelsFromResponse(operation, requiredModels);
+    var filteredApi = _.omit(api, 'operations');
+    var filteredOperations = [];
+
+    _.forEach(api.operations, function (operation) {
+
+      var path = api.path.replace(formatString, "").replace(/{.*\}/, "*");
+      if (canAccessResource(req, path, operation.httpMethod)) {
+        filteredOperations.push(_.clone(operation));
+        addModelsFromBody(operation, requiredModelNames);
+        addModelsFromResponse(operation, requiredModelNames);
       }
+
     });
-    //  only add cloned api if there are operations
-    if (clonedApi.operations.length > 0) {
-      output.apis.push(clonedApi);
+
+    filteredApi.operations = filteredOperations;
+
+    //  only add api if there are operations
+    if (filteredOperations.length > 0) {
+      filteredApis.push(filteredApi);
     }
   });
 
-  // add required models to output
-  output.models = {};
-  _.forOwn(requiredModels, function (modelName) {
+  filteredResource.apis = filteredApis;
+
+  _.forEach(requiredModelNames, function (modelName) {
     var model = allModels[modelName];
     if (model) {
-      output.models[modelName] = model;
+      filteredModels[modelName] = model;
     }
   });
-  //  look in object graph
-  _.forOwn(output.models, function (model) {
-    if (model && model.properties) {
-      _.forOwn(model.properties, function (property) {
-        var type = property.type;
 
+   //  look in object graph
+  _.forEach(filteredResource.models, function (model) {
+
+    if (model && model.properties) {
+
+      _.forEach(model.properties, function (property) {
+
+        var type = property.type;
         switch (type) {
         case "array":
         case "Array":
           if (property.items) {
             var ref = property.items.$ref;
-            if (ref && requiredModels.indexOf(ref) < 0) {
-              requiredModels.push(ref);
+            if (ref && requiredModelNames.indexOf(ref) < 0) {
+              requiredModelNames.push(ref);
             }
           }
           break;
@@ -202,30 +194,34 @@ function filterApiListing(req, res, r) {
         case "long":
           break;
         default:
-          if (requiredModels.indexOf(type) < 0) {
-            requiredModels.push(type);
+          if (requiredModelNames.indexOf(type) < 0) {
+            requiredModelNames.push(type);
           }
           break;
         }
       });
     }
   });
-  _.forOwn(requiredModels, function (modelName) {
-    if (!output[modelName]) {
+
+  _.forEach(requiredModelNames, function (modelName) {
+    if (!filteredModels[modelName]) {
       var model = allModels[modelName];
       if (model) {
-        output.models[modelName] = model;
+        filteredModels[modelName] = model;
       }
     }
   });
-  return output;
+
+  filteredResource.models = filteredModels;
+
+  return filteredResource;
 }
 
 // Add model to list and parse List[model] elements
 
 function addModelsFromBody(operation, models) {
   if (operation.parameters) {
-    _.forOwn(operation.parameters, function (param) {
+    _.forEach(operation.parameters, function (param) {
       if (param.paramType == "body" && param.dataType) {
         var model = param.dataType.replace(/^List\[/, "").replace(/\]/, "");
         models.push(model);
@@ -244,21 +240,6 @@ function addModelsFromResponse(operation, models) {
       models.push(responseModel);
     }
   }
-}
-
-// clone anything but objects to avoid shared references
-
-function shallowClone(obj) {
-  var cloned = {};
-  for (var i in obj) {
-    if (!obj.hasOwnProperty(i)) {
-      continue;
-    }
-    if (typeof (obj[i]) != "object") {
-      cloned[i] = obj[i];
-    }
-  }
-  return cloned;
 }
 
 // function for filtering a resource.  override this with your own implementation.
@@ -282,23 +263,24 @@ function canAccessResource(req, path, httpMethod) {
  */
 
 function resourceListing(req, res) {
-  var r = {
+
+  var resourceListing = {
     "apiVersion": apiVersion,
     "swaggerVersion": swaggerVersion,
     "basePath": basePath,
     "apis": []
   };
 
-  _.forOwn(resources, function (value, key) {
+  _.forEach(resources, function (value, key) {
     var p = resourcePath + "/" + key.replace(formatString, "");
-    r.apis.push({
+    resourceListing.apis.push({
       "path": p,
       "reason": "none"
     });
   });
 
   exports.setHeaders(res);
-  res.write(JSON.stringify(r));
+  res.write(JSON.stringify(resourceListing));
   res.end();
 }
 
@@ -310,7 +292,7 @@ function addMethod(app, callback, spec) {
 
   if (root && root.apis) {
     // this path already exists in swagger resources
-    _.forOwn(root.apis, function (api) {
+    _.forEach(root.apis, function (api) {
       if (api && api.path == spec.path && api.method == spec.method) {
         // add operation & return
         appendToApi(root, api, spec);
@@ -389,7 +371,7 @@ function setErrorHandler(handler) {
 // Add swagger handlers to express 
 
 function addHandlers(type, handlers) {
-  _.forOwn(handlers, function (handler) {
+  _.forEach(handlers, function (handler) {
     handler.spec.method = type;
     addMethod(appHandler, handler.action, handler.spec);
   });
@@ -398,7 +380,7 @@ function addHandlers(type, handlers) {
 // Discover swagger handler from resource
 
 function discover(resource) {
-  _.forOwn(resource, function (handler, key) {
+  _.forEach(resource, function (handler, key) {
     if (handler.spec && handler.spec.method && allowedMethods.indexOf(handler.spec.method.toLowerCase()) > -1) {
       addMethod(appHandler, handler.action, handler.spec);
     } else
@@ -454,9 +436,9 @@ function addModels(models) {
   if (!allModels) {
     allModels = models;
   } else {
-    _.forOwn(models, function (model, key) {
+    _.forEach(models, function (model, key) {
       var required = model.required;
-      _.forOwn(model.properties, function (property, propertyKey) {
+      _.forEach(model.properties, function (property, propertyKey) {
         // convert enum to allowableValues
         if (typeof property.enum !== 'undefined') {
           property.allowableValues = {
@@ -496,7 +478,7 @@ function appendToApi(rootResource, api, spec) {
     });
   }
   // validate params
-  _.forOwn(spec.params, function (param) {
+  _.forEach(spec.params, function (param) {
     if (param.allowableValues) {
       var avs = param.allowableValues.toString();
       var type = avs.split('[')[0];
@@ -560,9 +542,7 @@ function appendToApi(rootResource, api, spec) {
     "notes": spec.notes,
     "errorResponses": spec.errorResponses,
     "nickname": spec.nickname,
-    "summary": spec.summary,
-    "consumes" : spec.consumes,
-    "produces" : spec.produces
+    "summary": spec.summary
   };
 
   // Add custom fields.
