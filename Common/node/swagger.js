@@ -148,7 +148,8 @@ function filterApiListing(req, res, resource) {
 
       var path = api.path.replace(formatString, "").replace(/{.*\}/, "*");
       if (canAccessResource(req, path, operation.httpMethod)) {
-        filteredOperations.push(_.clone(operation));
+        console.log('operation', operation);
+        filteredOperations.push(_.cloneDeep(operation));
         addModelsFromBody(operation, requiredModelNames);
         addModelsFromResponse(operation, requiredModelNames);
       }
