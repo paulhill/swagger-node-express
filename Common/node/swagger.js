@@ -141,7 +141,8 @@ function filterApiListing(req, res, resource) {
 
   _.forEach(resource.apis, function (api) {
 
-    var filteredApi = _.omit(api, 'operations');
+    var filteredApi = _.cloneDeep(api);
+    filteredApi = _.omit(filteredApi, 'operations');
     var filteredOperations = [];
 
     _.forEach(api.operations, function (operation) {
