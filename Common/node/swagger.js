@@ -24,7 +24,6 @@ var resources = {};
 var validators = [];
 var appHandler = null;
 var allowedMethods = ['get', 'post', 'put', 'patch', 'delete'];
-var allowedDataTypes = ['string', 'int', 'long', 'double', 'boolean', 'date', 'array'];
 var params = require(__dirname + '/paramTypes.js');
 var allModels = {};
 
@@ -77,7 +76,7 @@ function setHeaders(res) {
 
 function setResourceListingPaths(app) {
 
-  _.forEach(resources, function (resource, key) {
+  _.forOwn(resources, function (resource, key) {
 
     // pet.json => api-docs.json/pet
     var path = baseApiFromPath(key);
@@ -99,7 +98,6 @@ function setResourceListingPaths(app) {
       } else {
         exports.setHeaders(res);
         var apiListing = filterApiListing(req, res, resource);
-        apiListing.basePath = basePath;
         if (apiListing.code) {
           res.send(apiListing, apiListing.code);
         } else {
@@ -273,7 +271,7 @@ function resourceListing(req, res) {
     "apis": []
   };
 
-  _.forEach(resources, function (value, key) {
+  _.forOwn(resources, function (value, key) {
     var p = resourcePath + "/" + key.replace(formatString, "");
     resourceListing.apis.push({
       "path": p,
@@ -382,11 +380,12 @@ function addHandlers(type, handlers) {
 // Discover swagger handler from resource
 
 function discover(resource) {
-  _.forEach(resource, function (handler, key) {
+  _.forOwn(resource, function (handler, key) {
     if (handler.spec && handler.spec.method && allowedMethods.indexOf(handler.spec.method.toLowerCase()) > -1) {
       addMethod(appHandler, handler.action, handler.spec);
-    } else
+    } else {
       console.error('auto discover failed for: ' + key);
+    }
   });
 }
 
@@ -438,9 +437,9 @@ function addModels(models) {
   if (!allModels) {
     allModels = models;
   } else {
-    _.forEach(models, function (model, key) {
+    _.forOwn(models, function (model, key) {
       var required = model.required;
-      _.forEach(model.properties, function (property, propertyKey) {
+      _.forOwn(model.properties, function (property, propertyKey) {
         // convert enum to allowableValues
         if (typeof property.enum !== 'undefined') {
           property.allowableValues = {
