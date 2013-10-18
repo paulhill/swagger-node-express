@@ -131,7 +131,7 @@ function filterApiListing(req, res, resource) {
   }
 
   var filteredResource = _.cloneDeep(resource);
-  filteredResource = _.omit(filteredResource, 'apis', 'models');
+  filteredResource = _.omit(filteredResource, 'apis', 'operations');
 
   //  models required in the api listing
   var requiredModelNames = [];
@@ -173,33 +173,36 @@ function filterApiListing(req, res, resource) {
   });
 
    //  look in object graph
-  _.forEach(filteredResource.models, function (model) {
+  _.forEach(filteredModels, function (model) {
 
-    if (model && model.properties) {
+    if (model) {
 
-      _.forEach(model.properties, function (property) {
+      if (model.properties) {
 
-        var type = property.type;
-        switch (type) {
-        case "array":
-        case "Array":
-          if (property.items) {
-            var ref = property.items.$ref;
-            if (ref && requiredModelNames.indexOf(ref) < 0) {
-              requiredModelNames.push(ref);
+        _.forEach(model.properties, function (property) {
+
+          var type = property.type;
+          switch (type) {
+          case "array":
+          case "Array":
+            if (property.items) {
+              var ref = property.items.$ref;
+              if (ref && requiredModelNames.indexOf(ref) < 0) {
+                requiredModelNames.push(ref);
+              }
             }
+            break;
+          case "string":
+          case "long":
+            break;
+          default:
+            if (requiredModelNames.indexOf(type) < 0) {
+              requiredModelNames.push(type);
+            }
+            break;
           }
-          break;
-        case "string":
-        case "long":
-          break;
-        default:
-          if (requiredModelNames.indexOf(type) < 0) {
-            requiredModelNames.push(type);
-          }
-          break;
-        }
-      });
+        });
+      }
     }
   });
 
@@ -437,7 +440,9 @@ function addModels(models) {
   if (!allModels) {
     allModels = models;
   } else {
+
     _.forOwn(models, function (model, key) {
+
       var required = model.required;
       _.forOwn(model.properties, function (property, propertyKey) {
         // convert enum to allowableValues
@@ -452,6 +457,7 @@ function addModels(models) {
           property.required = true;
         }
       });
+
       allModels[key] = model;
     });
   }
